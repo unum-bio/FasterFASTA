@@ -804,6 +804,7 @@ pub fn for_each_record_to_destination<T: Send + Sync>(
     mut retire: impl FnMut(&mut T, &mut RecordWriter<Sink>) -> io::Result<()>,
 ) -> io::Result<()> {
     only_one_standard_input(paths)?;
+    destination.validate_inputs(paths)?;
     let mut shared = destination.shared_writer(rendering)?;
     let (mut pool, order) = workers.dispatch();
 
