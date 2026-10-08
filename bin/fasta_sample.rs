@@ -245,6 +245,7 @@ fn run(args: &Args) -> io::Result<RunOutcome> {
         false => Destination::Stream(args.output.clone()),
     };
     let rendering = args.presentation.rendering(destination.terminal_path());
+    destination.validate_inputs(&args.inputs)?;
     let output: Box<dyn Write> = match &destination {
         Destination::Stream(path) => open_output(path.as_deref())?,
         _ => Box::new(io::sink()),
@@ -467,6 +468,17 @@ mod tests {
         fraction.finish().unwrap();
         assert_eq!(fraction.seen, 100);
         assert_eq!(fraction.retained, 100);
+    }
+
+    #[test]
+    fn output_alias_is_rejected_before_truncating_the_input() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("reads.fa");
+        std::fs::write(&input, b">a\nACGT\n").unwrap();
+        let path = input.to_str().unwrap();
+        let args = Args::try_parse_from(["tool", "--count", "1", path, "--output", path]).unwrap();
+        assert_eq!(run(&args).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(std::fs::read(&input).unwrap(), b">a\nACGT\n");
     }
 
     /// Every flag is spelled out, so a call site says what it does and nothing is remembered

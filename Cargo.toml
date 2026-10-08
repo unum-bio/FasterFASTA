@@ -31,6 +31,7 @@ forkunion = "3.0.2"
 lz4_flex = {version = "0.14", optional = true}
 lzma-rust2 = {version = "0.19", default-features = false, features = ["std", "xz", "encoder", "optimization"], optional = true}
 memmap2 = "0.9"
+same-file = "1.0"
 # Kept ahead of its first use: deduplication and sorting both need a tape of borrowed
 # spans over one payload, and StringZilla already pulls the same crate in.
 stringtape = "2.5"

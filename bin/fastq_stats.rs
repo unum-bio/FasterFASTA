@@ -24,7 +24,7 @@ use std::io::{self, Write};
 
 use clap::Parser;
 
-use fasterfasta::files::{finish_or_exit, open_output, InputFile, RunOutcome};
+use fasterfasta::files::{finish_or_exit, open_output, Destination, InputFile, RunOutcome};
 use fasterfasta::records::{phred33_sum, Record, SequenceFormat};
 use fasterfasta::scheduling::{for_each_record_in_input, Parallelism, Workers};
 
@@ -367,6 +367,9 @@ enum Format {
 }
 
 fn run(args: &Args) -> io::Result<RunOutcome> {
+    if !args.quiet && !args.dry_run {
+        Destination::Stream(args.output.clone()).validate_inputs(&args.inputs)?;
+    }
     let mut output: Box<dyn Write> = match args.quiet || args.dry_run {
         true => Box::new(io::sink()),
         false => open_output(args.output.as_deref())?,
@@ -600,8 +603,6 @@ mod tests {
         assert!(histogram_of(b"", SequenceFormat::Fasta).is_empty());
     }
 
-    /// Every flag is spelled out, so a call site says what it does and nothing is remembered
-    /// by letter. `-h` and `-V` are clap's own and stay.
     #[test]
     fn json_strings_escape_controls_and_preserve_unicode() {
         let mut output = Vec::new();
@@ -624,6 +625,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn output_alias_is_rejected_before_truncating_the_input() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("reads.fa");
+        std::fs::write(&input, b">a\nACGT\n").unwrap();
+        let path = input.to_str().unwrap();
+        let args = Args::try_parse_from(["tool", path, "--output", path]).unwrap();
+        assert_eq!(run(&args).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(std::fs::read(&input).unwrap(), b">a\nACGT\n");
+    }
+
+    /// Every flag is spelled out, so a call site says what it does and nothing is remembered
+    /// by letter. `-h` and `-V` are clap's own and stay.
     #[test]
     fn declares_no_short_flags() {
         // Built first, because `-h` and `-V` are only added then and they are the exemption.
