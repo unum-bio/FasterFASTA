@@ -188,14 +188,10 @@ fn write_row(
     label: &str,
     summary: &Summary,
 ) -> io::Result<()> {
-    let quality = match summary.mean_quality() {
-        Some(mean) => format!("{mean:.2}"),
-        None => "-".to_string(),
-    };
     match format {
-        Format::Table => writeln!(
+        Format::Table => write!(
             output,
-            "{:<28} {:<7} {:>10} {:>14} {:>9} {:>11.2} {:>9} {:>8} {:>7.2} {:>7.2}",
+            "{:<28} {:<7} {:>10} {:>14} {:>9} {:>11.2} {:>9} ",
             label,
             summary.format_name(),
             summary.records,
@@ -203,13 +199,10 @@ fn write_row(
             summary.minimum(),
             summary.mean_length(),
             summary.maximum_length,
-            quality,
-            summary.percentage(summary.gc_count),
-            summary.percentage(summary.n_count),
-        ),
-        Format::Plain => writeln!(
+        )?,
+        Format::Plain => write!(
             output,
-            "{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{:.2}\t{:.2}",
+            "{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t",
             label,
             summary.format_name(),
             summary.records,
@@ -217,20 +210,15 @@ fn write_row(
             summary.minimum(),
             summary.mean_length(),
             summary.maximum_length,
-            quality,
-            summary.percentage(summary.gc_count),
-            summary.percentage(summary.n_count),
-        ),
-        // Quality is null rather than "-" for a FASTA input, so a consumer branches on the
-        // type instead of on a sentinel it has to know about.
+        )?,
         Format::Json => {
             output.write_all(b"{\"file\":")?;
             write_json_string(output, label)?;
-            writeln!(
+            write!(
                 output,
                 concat!(
                     r#","format":"{}","num_seqs":{},"sum_len":{},"min_len":{},"#,
-                    r#""avg_len":{:.2},"max_len":{},"mean_q":{},"gc_pct":{:.2},"n_pct":{:.2}}}"#
+                    r#""avg_len":{:.2},"max_len":{},"mean_q":"#
                 ),
                 summary.format_name(),
                 summary.records,
@@ -238,14 +226,22 @@ fn write_row(
                 summary.minimum(),
                 summary.mean_length(),
                 summary.maximum_length,
-                match summary.mean_quality() {
-                    Some(mean) => format!("{mean:.2}"),
-                    None => "null".to_string(),
-                },
-                summary.percentage(summary.gc_count),
-                summary.percentage(summary.n_count),
-            )
+            )?;
         }
+    }
+    match (summary.mean_quality(), format) {
+        (Some(mean), Format::Table) => write!(output, "{mean:>8.2}")?,
+        (Some(mean), _) => write!(output, "{mean:.2}")?,
+        (None, Format::Table) => output.write_all(b"       -")?,
+        (None, Format::Plain) => output.write_all(b"-")?,
+        (None, Format::Json) => output.write_all(b"null")?,
+    }
+    let gc = summary.percentage(summary.gc_count);
+    let n = summary.percentage(summary.n_count);
+    match format {
+        Format::Table => writeln!(output, " {gc:>7.2} {n:>7.2}"),
+        Format::Plain => writeln!(output, "\t{gc:.2}\t{n:.2}"),
+        Format::Json => writeln!(output, ",\"gc_pct\":{gc:.2},\"n_pct\":{n:.2}}}"),
     }
 }
 
@@ -253,15 +249,16 @@ fn write_row(
 fn write_json_string(output: &mut impl Write, value: &str) -> io::Result<()> {
     output.write_all(b"\"")?;
     let mut copied = 0;
+    let mut control = *b"\\u0000";
     for (index, byte) in value.bytes().enumerate() {
         let escaped: &[u8] = match byte {
             b'"' => b"\\\"",
             b'\\' => b"\\\\",
             0..=0x1f => {
-                output.write_all(&value.as_bytes()[copied..index])?;
-                write!(output, "\\u{byte:04x}")?;
-                copied = index + 1;
-                continue;
+                const HEX: &[u8; 16] = b"0123456789abcdef";
+                control[4] = HEX[usize::from(byte >> 4)];
+                control[5] = HEX[usize::from(byte & 0xf)];
+                &control
             }
             _ => continue,
         };
@@ -482,6 +479,12 @@ mod tests {
         );
         let row = row_of(b">a\nACGT\n", SequenceFormat::Fasta);
         assert!(row.contains(" - "), "{row}");
+        let summary = summary_of(b">a\nACGT\n", SequenceFormat::Fasta);
+        for (format, quality) in [(Format::Plain, "\t-\t"), (Format::Json, "\"mean_q\":null,")] {
+            let mut output = Vec::new();
+            write_row(&mut output, format, "x", &summary).unwrap();
+            assert!(String::from_utf8(output).unwrap().contains(quality));
+        }
     }
 
     #[test]
@@ -489,6 +492,15 @@ mod tests {
         // 'I' is Q40 and '!' is Q0, so the mean over one of each is 20.
         let summary = summary_of(b"@a\nAC\n+\nI!\n", SequenceFormat::Fastq);
         assert_eq!(summary.mean_quality(), Some(20.0));
+        for (format, quality) in [
+            (Format::Table, "   20.00 "),
+            (Format::Plain, "\t20.00\t"),
+            (Format::Json, "\"mean_q\":20.00,"),
+        ] {
+            let mut output = Vec::new();
+            write_row(&mut output, format, "x", &summary).unwrap();
+            assert!(String::from_utf8(output).unwrap().contains(quality));
+        }
     }
 
     /// The histogram is derived from the observed range, so the same records in any order

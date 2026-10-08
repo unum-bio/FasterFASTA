@@ -322,17 +322,13 @@ pub enum ParseOutcome<'a> {
     Invalid(io::Error),
 }
 
-fn invalid<'a>(message: &str) -> ParseOutcome<'a> {
-    ParseOutcome::Invalid(io::Error::new(
-        io::ErrorKind::InvalidData,
-        message.to_string(),
-    ))
-}
-
 /// At end of input a partial record is a truncation, not a request for more bytes.
 fn incomplete_or_truncated<'a>(at_eof: bool, what: &str) -> ParseOutcome<'a> {
     if at_eof {
-        invalid(&format!("truncated input: {what} is incomplete"))
+        ParseOutcome::Invalid(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("truncated input: {what} is incomplete"),
+        ))
     } else {
         ParseOutcome::Incomplete
     }
@@ -429,7 +425,10 @@ pub fn parse_leading_fasta_record<'a>(
         return ParseOutcome::Incomplete;
     }
     if buffer[start] != b'>' {
-        return invalid("FASTA record must start with '>'");
+        return ParseOutcome::Invalid(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "FASTA record must start with '>'",
+        ));
     }
 
     let header_end = match find_line_end(buffer, start) {
@@ -501,7 +500,10 @@ pub fn parse_leading_fastq_record<'a>(
         return ParseOutcome::Incomplete;
     }
     if buffer[start] != b'@' {
-        return invalid("FASTQ record must start with '@'");
+        return ParseOutcome::Invalid(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "FASTQ record must start with '@'",
+        ));
     }
 
     let header_end = match find_line_end(buffer, start) {

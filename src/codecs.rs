@@ -188,21 +188,21 @@ impl Codec {
         feature = "lz4"
     )))]
     fn unsupported(self) -> io::Error {
-        let remedy = match self.feature() {
+        let message = match self.feature() {
             Some(feature) => format!(
-                "which this build cannot decode: rebuild with `--features {feature}`, \
-                 or pipe it through `{}` first",
+                "input is compressed with {}, which this build cannot decode: \
+                 rebuild with `--features {feature}`, or pipe it through `{}` first",
+                self.name(),
                 self.decompressor()
             ),
             None => format!(
-                "which this toolkit does not decode: pipe it through `{}` first",
+                "input is compressed with {}, which this toolkit does not decode: \
+                 pipe it through `{}` first",
+                self.name(),
                 self.decompressor()
             ),
         };
-        io::Error::new(
-            io::ErrorKind::Unsupported,
-            format!("input is compressed with {}, {remedy}", self.name()),
-        )
+        io::Error::new(io::ErrorKind::Unsupported, message)
     }
 }
 
