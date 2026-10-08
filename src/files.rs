@@ -13,9 +13,7 @@
 //! Scheduling lives in [`crate::scheduling`].
 //! Nothing here spawns a thread or picks a range, and nothing here declares a sibling module.
 
-use std::collections::{HashMap, HashSet};
-#[cfg(not(unix))]
-use std::hash::{Hash, Hasher};
+use std::collections::HashSet;
 use std::io::{self, Read, Write};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -581,7 +579,7 @@ impl Destination {
     ///
     /// This checks the current paths; concurrent replacements can invalidate the result.
     pub fn validate_inputs(&self, inputs: &[String]) -> io::Result<()> {
-        let directory = match self {
+        match self {
             Destination::Stream(Some(path)) if path != "-" => {
                 let output = Path::new(path);
                 let identity = match file_identity(output) {
@@ -594,11 +592,14 @@ impl Destination {
                         return Err(output_collision(input, output));
                     }
                 }
-                return Ok(());
+                Ok(())
             }
-            Destination::Directory(directory) => directory,
-            _ => return Ok(()),
-        };
+            Destination::Directory(directory) => self.validate_directory_inputs(directory, inputs),
+            _ => Ok(()),
+        }
+    }
+
+    fn validate_directory_inputs(&self, directory: &str, inputs: &[String]) -> io::Result<()> {
         let mut names = HashSet::new();
         let mut outputs = Vec::new();
         for input in inputs {
@@ -623,39 +624,35 @@ impl Destination {
         if outputs.is_empty() {
             return Ok(());
         }
-        let mut sources: HashMap<FileIdentity, Vec<&Path>> = HashMap::new();
-        let mut special_sources = HashSet::new();
+        let mut sources = Vec::with_capacity(inputs.len());
         for input in inputs {
             let path = Path::new(input);
-            if let Some(identity) = file_identity(path)? {
-                sources.entry(identity).or_default().push(path);
-            } else {
-                special_sources.insert(path.canonicalize()?);
-            }
+            sources.push((file_identity(path)?, path));
         }
-        let mut destinations: HashMap<FileIdentity, Vec<&Path>> = HashMap::new();
-        for (output, identity) in &outputs {
-            if let Some(identity) = identity {
-                for source in sources.get(identity).into_iter().flatten() {
-                    if input_matches_output(source, output, Some(*identity))? {
-                        return Err(output_collision(source.display(), output));
-                    }
+        sources.sort_unstable_by_key(|(identity, _)| *identity);
+        outputs.sort_unstable_by_key(|(_, identity)| *identity);
+        for (index, (output, identity)) in outputs.iter().enumerate() {
+            let first_source = sources.partition_point(|(source, _)| source < identity);
+            for (_, source) in sources[first_source..]
+                .iter()
+                .take_while(|(source, _)| source == identity)
+            {
+                if input_matches_output(source, output, *identity)? {
+                    return Err(output_collision(source.display(), output));
                 }
-                for earlier in destinations.get(identity).into_iter().flatten() {
-                    if input_matches_output(earlier, output, Some(*identity))? {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!(
-                                "outputs '{}' and '{}' refer to the same file",
-                                earlier.display(),
-                                output.display()
-                            ),
-                        ));
-                    }
+            }
+            let first_output = outputs[..index].partition_point(|(_, earlier)| earlier < identity);
+            for (earlier, _) in &outputs[first_output..index] {
+                if input_matches_output(earlier, output, *identity)? {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "outputs '{}' and '{}' refer to the same file",
+                            earlier.display(),
+                            output.display()
+                        ),
+                    ));
                 }
-                destinations.entry(*identity).or_default().push(output);
-            } else if special_sources.contains(&output.canonicalize()?) {
-                return Err(output_collision("an input", output));
             }
         }
         Ok(())
@@ -735,48 +732,59 @@ type FileIdentity = (u64, u64);
 #[cfg(not(unix))]
 type FileIdentity = u64;
 
+#[cfg(unix)]
 fn file_identity(path: &Path) -> io::Result<Option<FileIdentity>> {
+    use std::os::unix::fs::MetadataExt;
+
     let metadata = path.metadata()?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        Ok(Some((metadata.dev(), metadata.ino())))
-    }
-    #[cfg(not(unix))]
-    {
-        if !metadata.is_file() {
-            return Ok(None);
-        }
-        let handle = same_file::Handle::from_path(path)?;
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        handle.hash(&mut hasher);
-        Ok(Some(hasher.finish()))
-    }
+    Ok(Some((metadata.dev(), metadata.ino())))
 }
 
+#[cfg(not(unix))]
+fn file_identity(path: &Path) -> io::Result<Option<FileIdentity>> {
+    use std::hash::{Hash, Hasher};
+
+    if !path.metadata()?.is_file() {
+        return Ok(None);
+    }
+    let handle = same_file::Handle::from_path(path)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    handle.hash(&mut hasher);
+    Ok(Some(hasher.finish()))
+}
+
+#[cfg(unix)]
+fn input_matches_output(
+    input: &Path,
+    _output: &Path,
+    identity: Option<FileIdentity>,
+) -> io::Result<bool> {
+    let source = if input == Path::new("-") {
+        let handle = same_file::Handle::stdin()?;
+        Some((handle.dev(), handle.ino()))
+    } else {
+        file_identity(input)?
+    };
+    Ok(source == identity)
+}
+
+#[cfg(not(unix))]
 fn input_matches_output(
     input: &Path,
     output: &Path,
     identity: Option<FileIdentity>,
 ) -> io::Result<bool> {
     if input == Path::new("-") {
-        let handle = same_file::Handle::stdin()?;
-        #[cfg(unix)]
-        return Ok(identity == Some((handle.dev(), handle.ino())));
-        #[cfg(not(unix))]
-        return Ok(handle == same_file::Handle::from_path(output)?);
+        return Ok(same_file::Handle::stdin()? == same_file::Handle::from_path(output)?);
     }
     let source = file_identity(input)?;
     if source != identity {
         return Ok(false);
     }
-    if source.is_none() {
-        return Ok(input.canonicalize()? == output.canonicalize()?);
+    match source {
+        Some(_) => same_file::is_same_file(input, output),
+        None => Ok(input.canonicalize()? == output.canonicalize()?),
     }
-    #[cfg(unix)]
-    return Ok(true);
-    #[cfg(not(unix))]
-    same_file::is_same_file(input, output)
 }
 
 fn output_collision(input: impl std::fmt::Display, output: &Path) -> io::Error {

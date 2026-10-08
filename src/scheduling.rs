@@ -264,13 +264,23 @@ fn run_round<T: Send + Sync>(
         true => RecordOrder::Preserved,
         false => order,
     };
-    match indexing {
-        RecordOrder::Preserved => {
+    match (pool.threads_count(), indexing) {
+        // A one-thread pool has no native scheduler storage.
+        (1, order) => {
+            for task_index in 0..tasks {
+                let slot_index = match order {
+                    RecordOrder::Preserved => task_index,
+                    RecordOrder::Ignored => 0,
+                };
+                slots[slot_index].attempt(&cancelled, task_index, &run);
+            }
+        }
+        (_, RecordOrder::Preserved) => {
             forkunion::for_each_prong_mut_dynamic(pool, &mut slots[..tasks], |slot, prong| {
                 slot.attempt(&cancelled, prong.task_index, &run);
             });
         }
-        RecordOrder::Ignored => {
+        (_, RecordOrder::Ignored) => {
             forkunion::fold_with_scratch(
                 pool,
                 (0..tasks).into_par_iter(),

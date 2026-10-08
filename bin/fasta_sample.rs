@@ -222,16 +222,22 @@ struct Args {
 /// Reported as an error rather than printed here, so a bad flag leaves through the same
 /// epilogue every other tool uses and carries the same prefix.
 fn mode_of(count: Option<usize>, fraction: Option<f64>) -> io::Result<Mode> {
-    let rejected = |reason: String| io::Error::new(io::ErrorKind::InvalidInput, reason);
     match (count, fraction) {
-        (Some(0), _) => Err(rejected("--count must be at least 1".to_string())),
+        (Some(0), _) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--count must be at least 1",
+        )),
         (Some(count), _) => Ok(Mode::Count(count)),
         (_, Some(fraction)) if (0.0..=1.0).contains(&fraction) => Ok(Mode::Fraction(fraction)),
-        (_, Some(fraction)) => Err(rejected(format!(
-            "--fraction must be between 0.0 and 1.0, got {fraction}"
-        ))),
+        (_, Some(fraction)) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("--fraction must be between 0.0 and 1.0, got {fraction}"),
+        )),
         // Unreachable through the command line, where the `selector` group requires one.
-        (None, None) => Err(rejected("pass either --count or --fraction".to_string())),
+        (None, None) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "pass either --count or --fraction",
+        )),
     }
 }
 
