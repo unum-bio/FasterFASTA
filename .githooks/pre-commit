@@ -48,9 +48,22 @@ while IFS= read -r -d '' file; do
     staged_files+=("$file")
 done < <(git diff --cached --name-only --diff-filter=ACM -z)
 
+# A generated lockfile has no house style, but its dependency resolution must remain valid.
+if [ -f Cargo.toml ] && command -v cargo >/dev/null 2>&1 &&
+    git diff --cached --name-only --diff-filter=ACM | grep -qx 'Cargo.lock'; then
+    if ! lock_output=$(cargo metadata --locked --format-version 1 2>&1 >/dev/null); then
+        fail "$lock_output"$'\n' "cargo metadata could not run." \
+            "Refresh Cargo.lock with Cargo and stage it before retrying."
+    fi
+fi
+
 # Nothing to inspect. Exiting here also means every loop below can expand the array unguarded,
 # which is what keeps this readable under bash 3.2, where `"${empty[@]}"` trips `set -u`.
 if [ "${#staged_files[@]}" -eq 0 ]; then
+    if [ "$failures" -ne 0 ]; then
+        echo "pre-commit: $failures check(s) failed. Fix them, or bypass with --no-verify if intentional." >&2
+        exit 1
+    fi
     exit 0
 fi
 
@@ -488,9 +501,8 @@ if [ -f Cargo.toml ] && command -v cargo >/dev/null 2>&1 &&
     fi
 
     # `--all-targets` so test modules are linted too; they are where most of this crate lives.
-    # `--no-deps` keeps the sibling crates that .cargo/config.toml redirects to local working
-    # copies out of the report - their warnings are real, but they are not this commit's to fix.
-    if ! clippy_output=$(cargo clippy --all-targets --no-deps --quiet -- -D warnings 2>&1); then
+    # `--no-deps` limits diagnostics to this crate; dependency warnings are not this commit's to fix.
+    if ! clippy_output=$(cargo clippy --locked --all-targets --no-deps --quiet -- -D warnings 2>&1); then
         # A lint carries a `-->` source location; a cargo that could not run at all - an
         # unresolvable dependency, no network, a poisoned lock - carries none. The two need
         # different remedies, so they get different messages.
@@ -525,7 +537,7 @@ if [ -f Cargo.toml ] && command -v cargo >/dev/null 2>&1 &&
         selected="--no-default-features"
         [ -n "$features" ] && selected="$selected --features $features"
         # shellcheck disable=SC2086
-        if ! matrix=$(cargo check --all-targets --quiet $selected 2>&1); then
+        if ! matrix=$(cargo check --locked --all-targets --quiet $selected 2>&1); then
             fail "$(printf '%s\n' "$matrix" | grep -E '^error' | head -4)"$'\n' \
                 "cargo check fails with --features ${features:-none}." \
                 "A cfg on a match arm must carry the same predicate as the cfg on its variant."

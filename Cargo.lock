@@ -208,7 +208,7 @@ dependencies = [
  "lz4_flex",
  "lzma-rust2",
  "memmap2",
- "stringtape 2.5.0",
+ "stringtape",
  "stringzilla",
  "tempfile",
  "zstd",
@@ -423,13 +423,6 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 [[package]]
 name = "stringtape"
 version = "2.5.0"
-dependencies = [
- "allocator-api2",
-]
-
-[[package]]
-name = "stringtape"
-version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b1d53a2189c6e282782aeac512b3153bad14da21c3e33bc0a415e24b3bcefbb"
 dependencies = [
@@ -445,7 +438,7 @@ dependencies = [
  "allocator-api2",
  "cc",
  "forkunion",
- "stringtape 2.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "stringtape",
 ]
 
 [[package]]

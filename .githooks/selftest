@@ -222,6 +222,7 @@ fixture=$(new_fixture)
         'repository = "https://github.com/ashvardanian/faster-fasta"' '' '[dependencies]'
 } >"$fixture/Cargo.toml"
 printf '%s\n' 'pub fn width() -> usize {' '    4' '}' >"$fixture/src/lib.rs"
+cargo generate-lockfile --offline --manifest-path "$fixture/Cargo.toml" >/dev/null 2>&1
 assert_precommit_accepts "the repository URL keeps its path" "$fixture"
 
 # Formatting and static analysis. Both need a real crate, so these fixtures carry a manifest, and
@@ -232,6 +233,7 @@ fixture=$(new_fixture)
         '' '[dependencies]'
 } >"$fixture/Cargo.toml"
 printf '%s\n' 'pub fn width(  a:usize )->usize{a}' >"$fixture/src/lib.rs"
+cargo generate-lockfile --offline --manifest-path "$fixture/Cargo.toml" >/dev/null 2>&1
 assert_precommit_rejects "an unformatted file is rejected" "$fixture" "rustfmt would change"
 
 fixture=$(new_fixture)
@@ -242,7 +244,27 @@ fixture=$(new_fixture)
 {
     printf '%s\n' 'pub fn empty(values: &[usize]) -> bool {' '    values.len() == 0' '}'
 } >"$fixture/src/lib.rs"
+cargo generate-lockfile --offline --manifest-path "$fixture/Cargo.toml" >/dev/null 2>&1
 assert_precommit_rejects "a clippy lint is rejected" "$fixture" "clippy found problems"
+
+# A lockfile-only change must be validated without Cargo repairing it.
+fixture=$(new_fixture)
+printf '%s\n' '[package]' 'name = "fixture"' 'version = "0.1.0"' 'edition = "2021"' >"$fixture/Cargo.toml"
+printf '%s\n' 'pub fn width() -> usize {' '    4' '}' >"$fixture/src/lib.rs"
+tests_module >>"$fixture/src/lib.rs"
+cargo generate-lockfile --offline --manifest-path "$fixture/Cargo.toml" >/dev/null 2>&1
+git -C "$fixture" add -A
+git -C "$fixture" commit -q -m "Make: Baseline crate"
+sed 's/version = "0.1.0"/version = "0.0.0"/' "$fixture/Cargo.lock" >"$fixture/changed.lock"
+mv "$fixture/changed.lock" "$fixture/Cargo.lock"
+assert_precommit_rejects "a stale lockfile is rejected without refresh" "$fixture" "cargo metadata could not run"
+if grep -q 'version = "0.0.0"' "$fixture/Cargo.lock"; then
+    passed=$((passed + 1))
+    printf 'ok    validation leaves the stale lockfile unchanged\n'
+else
+    failed=$((failed + 1))
+    printf 'FAIL  validation rewrote the stale lockfile\n'
+fi
 
 # A cargo that cannot run at all is not a lint. An unresolvable dependency, a missing component and
 # a poisoned lock all reach the same place as a real warning, and reporting them as "clippy found

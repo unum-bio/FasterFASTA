@@ -22,7 +22,9 @@ Merge and revert subjects pass through, since Git writes them.
 The style checks cover banner separators, `// region:` balance, module declarations outside the crate root, banned vocabulary, the retired crate spelling, one `#[cfg(test)] mod tests` per source, backward-looking comments, abbreviated identifiers, `std::sync::Mutex` under `src/`, and Markdown emphasis and sentence-per-line.
 `.githooks/` itself is exempt from every content scan, because a hook has to spell out the patterns it bans.
 
-The `cargo fmt` and `cargo clippy` gates run only when a `.rs` file or the manifest is staged, and are skipped when there is no `Cargo.toml` or no `cargo` on `PATH`.
+The toolchain gates run when a `.rs` file or `Cargo.toml` is staged, and are skipped when there is no `Cargo.toml` or no `cargo` on `PATH`.
+Staged lockfiles are validated with `cargo metadata --locked`.
+Cargo checks use `--locked` so validation cannot refresh the committed dependency set.
 A cargo that fails to run at all is reported as a toolchain fault rather than as a formatting or lint violation.
 
 ## Selftest

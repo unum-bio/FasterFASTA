@@ -7,7 +7,7 @@ keywords = ["bioinformatics", "fasta", "fastq", "cli", "sequence-analysis"]
 license = "Apache-2.0"
 name = "fasterfasta"
 readme = "README.md"
-repository = "https://github.com/unum-bio/FasterFASTA"
+repository = "https://github.com/unum-science/FasterFASTA"
 version = "0.1.0"
 
 [features]
@@ -33,7 +33,7 @@ lzma-rust2 = {version = "0.19", default-features = false, features = ["std", "xz
 memmap2 = "0.9"
 # Kept ahead of its first use: deduplication and sorting both need a tape of borrowed
 # spans over one payload, and StringZilla already pulls the same crate in.
-stringtape = {path = "../StringTape"}
+stringtape = "2.5"
 stringzilla = {version = "5", features = ["cpus"]}
 zstd = {version = "0.13", default-features = false, optional = true}
 

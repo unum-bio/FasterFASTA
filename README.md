@@ -54,8 +54,8 @@ Small, exact, and unlikely to be your bottleneck, but here so a pipeline need no
 ## Installation
 
 ```bash
-cargo install --git https://github.com/unum-bio/FasterFASTA    # install from GitHub
-cargo install --path . --force                                 # or install from local clone
+cargo install --locked --git https://github.com/unum-science/FasterFASTA    # install from GitHub
+cargo install --locked --path . --force                                     # or install from local clone
 ```
 
 ## Usage
@@ -313,7 +313,7 @@ hyperfine \
 - __Read mapping against a reference index.__
   That is an FM-index and minimizer problem rather than a string-scanning one; use `bwa`, `minimap2`, or `bowtie2`.
 - __Alignment scoring and traceback.__
-  Identity here is settled by comparing bytes, so two reads differing by one base stay two records; recovering the alignment between them is a quadratic dynamic program that belongs on a GPU, which is what [AffineGaps](https://github.com/unum-bio/AffineGaps) is for.
+  Identity here is settled by comparing bytes, so two reads differing by one base stay two records; recovering the alignment between them is a quadratic dynamic program that belongs on a GPU, which is what [AffineGaps](https://github.com/unum-science/AffineGaps) is for.
 - __Approximate similarity search and clustering.__
   Grouping by similarity rather than equality means an index built once and queried at billion-scale, not an ad-hoc pass over a file; [USearch](https://github.com/unum-cloud/USearch) is that index, and exact deduplication is what shrinks a corpus before it goes in.
 - __SAM, BAM, VCF, and GFF.__
