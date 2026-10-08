@@ -688,10 +688,7 @@ pub fn first_record_boundary(bytes: &[u8], from: usize, format: SequenceFormat) 
     // Searching for both bytes at once leaves the whole scan to one SIMD pass.
     let needle = [b'\n', sigil];
     let mut cursor = from;
-    loop {
-        let Some(found) = find(&bytes[cursor..], needle) else {
-            break;
-        };
+    while let Some(found) = find(&bytes[cursor..], needle) {
         let candidate = found + cursor + 1;
         if candidate >= bytes.len() {
             undecided = undecided.or(Some(found + cursor));
