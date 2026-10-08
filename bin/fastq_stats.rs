@@ -77,11 +77,11 @@ impl Summary {
 
     fn merge(&mut self, other: &Summary) {
         // A total row over mixed formats has no single format to report.
-        self.format = match (self.format, other.format) {
-            (None, found) | (found, None) => found,
-            (first, second) if first == second => first,
-            _ => None,
-        };
+        if self.records == 0 {
+            self.format = other.format;
+        } else if other.records != 0 && self.format != other.format {
+            self.format = None;
+        }
         self.records += other.records;
         self.bases += other.bases;
         self.minimum_length = self.minimum_length.min(other.minimum_length);
@@ -543,6 +543,52 @@ mod tests {
         let mut merged = summary_of(b">a\nACGT\n", SequenceFormat::Fasta);
         merged.merge(&summary_of(b"@b\nACGT\n+\nIIII\n", SequenceFormat::Fastq));
         assert_eq!(merged.format_name(), "-");
+    }
+
+    #[test]
+    fn mixed_totals_stay_mixed_in_every_order_and_grouping() {
+        let summaries = [
+            summary_of(b">a\nACGT\n", SequenceFormat::Fasta),
+            summary_of(b"@b\nACGT\n+\nIIII\n", SequenceFormat::Fastq),
+            summary_of(b"@c\nACGT\n+\nIIII\n", SequenceFormat::Fastq),
+        ];
+        for order in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
+            for split in 0..=3 {
+                let mut merged = Summary::new();
+                let mut tail = Summary::new();
+                for &index in &order[..split] {
+                    merged.merge(&summaries[index]);
+                }
+                for &index in &order[split..] {
+                    tail.merge(&summaries[index]);
+                }
+                merged.merge(&tail);
+                assert_eq!(merged.records, 3);
+                assert_eq!(merged.bases, 12);
+                assert_eq!(merged.format_name(), "-");
+                assert_eq!(merged.mean_quality(), None);
+            }
+        }
+    }
+
+    #[test]
+    fn merging_empty_summaries_preserves_the_format() {
+        let fastq = summary_of(b"@a\nACGT\n+\nIIII\n", SequenceFormat::Fastq);
+        let empty_fasta = summary_of(b"", SequenceFormat::Fasta);
+        let mut merged = Summary::new();
+        merged.merge(&empty_fasta);
+        merged.merge(&fastq);
+        merged.merge(&empty_fasta);
+        merged.merge(&Summary::new());
+        assert_eq!(merged.format_name(), "FASTQ");
+        assert_eq!(merged.mean_quality(), Some(40.0));
     }
 
     #[test]
