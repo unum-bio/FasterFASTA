@@ -223,27 +223,54 @@ fn write_row(
         ),
         // Quality is null rather than "-" for a FASTA input, so a consumer branches on the
         // type instead of on a sentinel it has to know about.
-        Format::Json => writeln!(
-            output,
-            concat!(
-                r#"{{"file":"{}","format":"{}","num_seqs":{},"sum_len":{},"min_len":{},"#,
-                r#""avg_len":{:.2},"max_len":{},"mean_q":{},"gc_pct":{:.2},"n_pct":{:.2}}}"#
-            ),
-            label.escape_debug(),
-            summary.format_name(),
-            summary.records,
-            summary.bases,
-            summary.minimum(),
-            summary.mean_length(),
-            summary.maximum_length,
-            match summary.mean_quality() {
-                Some(mean) => format!("{mean:.2}"),
-                None => "null".to_string(),
-            },
-            summary.percentage(summary.gc_count),
-            summary.percentage(summary.n_count),
-        ),
+        Format::Json => {
+            output.write_all(b"{\"file\":")?;
+            write_json_string(output, label)?;
+            writeln!(
+                output,
+                concat!(
+                    r#","format":"{}","num_seqs":{},"sum_len":{},"min_len":{},"#,
+                    r#""avg_len":{:.2},"max_len":{},"mean_q":{},"gc_pct":{:.2},"n_pct":{:.2}}}"#
+                ),
+                summary.format_name(),
+                summary.records,
+                summary.bases,
+                summary.minimum(),
+                summary.mean_length(),
+                summary.maximum_length,
+                match summary.mean_quality() {
+                    Some(mean) => format!("{mean:.2}"),
+                    None => "null".to_string(),
+                },
+                summary.percentage(summary.gc_count),
+                summary.percentage(summary.n_count),
+            )
+        }
     }
+}
+
+/// Write a JSON string, leaving Unicode intact and escaping every ASCII control byte.
+fn write_json_string(output: &mut impl Write, value: &str) -> io::Result<()> {
+    output.write_all(b"\"")?;
+    let mut copied = 0;
+    for (index, byte) in value.bytes().enumerate() {
+        let escaped: &[u8] = match byte {
+            b'"' => b"\\\"",
+            b'\\' => b"\\\\",
+            0..=0x1f => {
+                output.write_all(&value.as_bytes()[copied..index])?;
+                write!(output, "\\u{byte:04x}")?;
+                copied = index + 1;
+                continue;
+            }
+            _ => continue,
+        };
+        output.write_all(&value.as_bytes()[copied..index])?;
+        output.write_all(escaped)?;
+        copied = index + 1;
+    }
+    output.write_all(&value.as_bytes()[copied..])?;
+    output.write_all(b"\"")
 }
 
 /// Summarize one input, which may hold no records at all.
@@ -529,6 +556,28 @@ mod tests {
 
     /// Every flag is spelled out, so a call site says what it does and nothing is remembered
     /// by letter. `-h` and `-V` are clap's own and stay.
+    #[test]
+    fn json_strings_escape_controls_and_preserve_unicode() {
+        let mut output = Vec::new();
+        write_json_string(
+            &mut output,
+            "quote\" slash\\ newline\n tab\t \u{1} \u{85} é",
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "\"quote\\\" slash\\\\ newline\\u000a tab\\u0009 \\u0001 \u{85} é\""
+        );
+        for byte in 0..=0x1f {
+            let mut output = Vec::new();
+            write_json_string(&mut output, &char::from(byte).to_string()).unwrap();
+            assert_eq!(
+                String::from_utf8(output).unwrap(),
+                format!("\"\\u{byte:04x}\"")
+            );
+        }
+    }
+
     #[test]
     fn declares_no_short_flags() {
         // Built first, because `-h` and `-V` are only added then and they are the exemption.
